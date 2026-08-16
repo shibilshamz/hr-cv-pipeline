@@ -1,0 +1,23 @@
+# Credentials & secrets
+credentials/
+credentials/*.json
+.env
+.env.*
+*.key
+*.pem
+service-account*.json
+
+# Candidate data — never commit real CVs or exported sheets
+cvs/
+inbox/
+*.pdf
+*.docx
+export*.csv
+
+# Logs
+*.log
+nohup.out
+
+# OS
+.DS_Store
+Thumbs.db

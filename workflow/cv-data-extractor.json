@@ -1,0 +1,682 @@
+{
+  "name": "CV Data Extractor",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "=YOUR_INBOX_FOLDER_ID",
+          "mode": "id"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "fa2883ef-35e3-43b4-aaa8-230676230522",
+      "name": "Watch Inbox",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "f3ede047-8599-4bbb-899e-0f6ce15f68ee",
+      "name": "Download CV",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "aaf7b43e-98a3-494a-929e-cfdf6bffce4f",
+      "name": "Extract Text",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_ANTHROPIC_API_KEY"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 1024,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a CV data extraction specialist. Return ONLY valid JSON, no explanation.\\n\\nRules:\\n- Empty string if not found\\n- For relevant_years_of_experience, calculate from earliest job to Aug 2026 and format as 'X years Y months' (e.g. '6 years 10 months')\\n- For gcc_experience, calculate years in GCC countries and format as 'X years Y months'\\n- last_company and last_job_title = most recent role\\n- For contact_number, return the number exactly as written with country code, as a plain string\\n\\nFields:\\n{\\\"full_name\\\":\\\"\\\",\\\"contact_number\\\":\\\"\\\",\\\"nationality\\\":\\\"\\\",\\\"email_id\\\":\\\"\\\",\\\"current_location\\\":\\\"\\\",\\\"visa_status\\\":\\\"\\\",\\\"last_company\\\":\\\"\\\",\\\"last_job_title\\\":\\\"\\\",\\\"relevant_years_of_experience\\\":\\\"\\\",\\\"gcc_experience\\\":\\\"\\\",\\\"current_salary\\\":\\\"\\\",\\\"expected_salary\\\":\\\"\\\",\\\"notice_period\\\":\\\"\\\",\\\"reason_for_leaving\\\":\\\"\\\"}\\n\\nCV Text:\\n\" + $json.text\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        0
+      ],
+      "id": "65fe1af5-eca2-47b8-bdae-2a824f64f3f0",
+      "name": "Claude Extract"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Runs once per item — $input.item is THIS CV, not item 0\nconst raw = $input.item.json.content?.[0]?.text ?? '';\nconst sourceFile = $('Watch Inbox').item.json.name;\nconst fileId = $('Watch Inbox').item.json.id;\nconst processedAt = new Date().toISOString();\n\nlet data;\ntry {\n  const clean = raw.replace(/```json/g, '').replace(/```/g, '').trim();\n  data = JSON.parse(clean);\n} catch (e) {\n  return {\n    json: {\n      _error: `JSON parse failed: ${e.message}`,\n      _raw: raw.slice(0, 500),\n      _source_file: sourceFile,\n      _file_id: fileId,\n      _processed_at: processedAt,\n    }\n  };\n}\n\n// Stop Google Sheets treating \"+971...\" as a formula\nif (data.contact_number) {\n  data.contact_number = \"'\" + String(data.contact_number).replace(/^'/, '');\n}\n\ndata._source_file = sourceFile;\ndata._file_id = fileId;\ndata._processed_at = processedAt;\n\nreturn { json: data };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "162f2705-c6ff-4a62-8999-f160f227f47e",
+      "name": "Parse Response"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 0,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Full Name": "={{ $json.full_name }}",
+            "Contact Number": "={{ $json.contact_number }}",
+            "Nationality": "={{ $json.nationality }}",
+            "Email Id": "={{ $json.email_id }}",
+            "Current Location": "={{ $json.current_location }}",
+            "Visa Status": "={{ $json.visa_status }}",
+            "Last Company": "={{ $json.last_company }}",
+            "Last Job Title": "={{ $json.last_job_title }}",
+            "Relevant Years of Experience": "={{ $json.relevant_years_of_experience }}",
+            "GCC Experience": "={{ $json.gcc_experience }}",
+            "Current Salary": "={{ $json.current_salary }}",
+            "Expected Salary": "={{ $json.expected_salary }}",
+            "Notice Period": "={{ $json.notice_period }}",
+            "Reason for Leaving": "={{ $json.reason_for_leaving }}",
+            "Source File": "={{ $json._source_file }}",
+            "Processed At": "={{ $json._processed_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Contact Number",
+              "displayName": "Contact Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nationality",
+              "displayName": "Nationality",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email Id",
+              "displayName": "Email Id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Current Location",
+              "displayName": "Current Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Visa Status",
+              "displayName": "Visa Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Company",
+              "displayName": "Last Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Job Title",
+              "displayName": "Last Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Relevant Years of Experience",
+              "displayName": "Relevant Years of Experience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "GCC Experience",
+              "displayName": "GCC Experience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Current Salary",
+              "displayName": "Current Salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Expected Salary",
+              "displayName": "Expected Salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notice Period",
+              "displayName": "Notice Period",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reason for Leaving",
+              "displayName": "Reason for Leaving",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Source File",
+              "displayName": "Source File",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed At",
+              "displayName": "Processed At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1728,
+        -128
+      ],
+      "id": "94b69e34-ae42-4a66-a3bf-fb5f6d91b365",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets - CV Extractor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Dedup').item.json._file_id }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "=YOUR_DONE_FOLDER_ID",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1936,
+        0
+      ],
+      "id": "3a55ac93-f803-4e9e-b293-0d12de0cff5a",
+      "name": "Move to Done",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ca6dc736-9bef-4f42-ade0-c80665062f70",
+              "leftValue": "={{ $json._error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1008,
+        0
+      ],
+      "id": "e6c594c3-1358-4cdf-9630-5824814c0802",
+      "name": "Has Error?"
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json._file_id }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "YOUR_ERRORS_FOLDER_ID",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1248,
+        -80
+      ],
+      "id": "b4f12f58-2276-4cd9-874b-e962d32fe114",
+      "name": "Move to Errors",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 0,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1232,
+        128
+      ],
+      "id": "2b9319fc-bb08-4698-bbce-f2c1489d8d86",
+      "name": "Check Duplicate",
+      "alwaysOutputData": false,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets - CV Extractor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f42686f1-abe2-4c8b-9a86-a7ea9384d800",
+              "leftValue": "={{ $json._is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1536,
+        -16
+      ],
+      "id": "d46fc66f-1e30-4b89-9229-7c386de684b8",
+      "name": "Is New?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const existing = new Set(\n  $input.all()\n    .map(i => String(i.json['Email Id'] ?? '').toLowerCase().trim())\n    .filter(Boolean)\n);\n\nconst seen = new Set();\n\nreturn $('Parse Response').all()\n  .filter(i => !i.json._error)\n  .map(i => {\n    const email = String(i.json.email_id ?? '').toLowerCase().trim();\n    const dup = !email || existing.has(email) || seen.has(email);\n    if (!dup) seen.add(email);\n    return { json: { ...i.json, _is_duplicate: dup } };\n  });"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        128
+      ],
+      "id": "bf50be30-a084-47ec-84bc-d6c9c25fd6bc",
+      "name": "Dedup"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    _file_id: $('Watch Inbox').item.json.id,\n    _source_file: $('Watch Inbox').item.json.name,\n    _error: 'Extract Text failed: ' + ($input.item.json.error ?? 'unknown'),\n    _processed_at: new Date().toISOString(),\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -208
+      ],
+      "id": "d28b097c-fee3-4bcb-a2e5-c4fa6d2a45a3",
+      "name": "Error Prep"
+    }
+  ],
+  "connections": {
+    "Watch Inbox": {
+      "main": [
+        [
+          {
+            "node": "Download CV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download CV": {
+      "main": [
+        [
+          {
+            "node": "Extract Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text": {
+      "main": [
+        [
+          {
+            "node": "Claude Extract",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Prep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Extract": {
+      "main": [
+        [
+          {
+            "node": "Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [
+          {
+            "node": "Has Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Move to Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error?": {
+      "main": [
+        [
+          {
+            "node": "Move to Errors",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Dedup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New?": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Move to Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup": {
+      "main": [
+        [
+          {
+            "node": "Is New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Prep": {
+      "main": [
+        [
+          {
+            "node": "Move to Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {}
+}
