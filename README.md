@@ -6,6 +6,18 @@ No UI to learn, no app to install. The recruiter's workflow is still "drag the P
 
 ---
 
+## Screenshots
+
+**The workflow** — 13 nodes, three Drive folders acting as the queue:
+
+![n8n canvas](docs/screenshots/n8n-canvas.png)
+
+**The output** — one row per candidate, deduplicated by email (sample data shown):
+
+![Google Sheet](docs/screenshots/google-sheet.png)
+
+---
+
 ## Architecture
 
 ```
