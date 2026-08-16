@@ -99,7 +99,7 @@ Then toggle **Active**. It polls every minute from there.
 
 ## Self-hosting n8n
 
-The original runs in Docker on an Ubuntu VPS, bound to localhost and reached over an SSH tunnel — no public port:
+The original runs in Docker on an Ubuntu VPS, with the container bound to localhost and a reverse proxy in front of it:
 
 ```bash
 docker run -d --restart unless-stopped \
@@ -111,7 +111,9 @@ docker run -d --restart unless-stopped \
   n8nio/n8n
 ```
 
-Then from your laptop:
+Binding to `127.0.0.1` keeps port 5678 itself off the internet. You then reach the editor one of two ways.
+
+**Private — SSH tunnel, nothing exposed:**
 
 ```bash
 ssh -L 5678:127.0.0.1:5678 user@your-vps
@@ -119,7 +121,22 @@ ssh -L 5678:127.0.0.1:5678 user@your-vps
 
 and open `http://localhost:5678`.
 
-If you'd rather expose it properly, put nginx and a TLS certificate in front and set `N8N_HOST` / `WEBHOOK_URL` to your domain. Don't publish port 5678 directly.
+**Public — reverse proxy with TLS.** A minimal Caddyfile:
+
+```caddyfile
+n8n.example.com {
+    reverse_proxy localhost:5678
+}
+```
+
+⚠️ **A reverse proxy puts your n8n login page on the public internet**, and the localhost binding no longer protects it — the proxy runs on the same host. Anything stored in a workflow (API keys pasted into HTTP nodes, spreadsheet IDs) is one login away from anyone who finds the URL. If you go this route:
+
+- Use a strong, unique password and **turn on 2FA** in n8n
+- Keep credentials in n8n's credential store, not inline in nodes
+- Consider `basic_auth` in the proxy, or an IP allowlist, as a second layer
+- Don't rely on an obscure hostname — wildcard-DNS names like `<ip>.sslip.io` are derivable from the IP and show up in your TLS certificate
+
+Never publish port 5678 directly.
 
 ---
 
